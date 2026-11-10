@@ -1,0 +1,10 @@
+{
+  "name": "design-court",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "Multi-agent adversarial design and review: independent agents draft, critique, cross-examine and rebut each other, a judge rules on evidence, fixes are applied, and rounds repeat until the result holds. The human is asked only product questions.",
+  "author": {
+    "name": "Design Court"
+  },
+  "keywords": ["review", "design", "adversarial", "multi-agent", "architecture"]
+}

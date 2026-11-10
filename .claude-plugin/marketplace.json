@@ -1,0 +1,14 @@
+{
+  "name": "design-court",
+  "description": "Design Court: multi-agent adversarial design and review for Claude Code",
+  "owner": {
+    "name": "Design Court"
+  },
+  "plugins": [
+    {
+      "name": "design-court",
+      "source": "./plugins/design-court",
+      "description": "Competing designs and adversarial multi-agent review loops that ask you only product questions"
+    }
+  ]
+}
