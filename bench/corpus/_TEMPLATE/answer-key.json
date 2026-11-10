@@ -1,0 +1,11 @@
+{
+  "id": "<same as the folder name>",
+  "synthetic": false,
+  "note": "Where the defects come from: planted, or found later in implementation (cite the PR/incident).",
+  "defects": [
+    {"id": "D1", "severity": "blocker | major | minor",
+     "title": "one line",
+     "detect_if": "what a review must say for this to count as found (be specific, the judge is literal)",
+     "fixed_if": "what the document must say afterwards for this to count as fixed"}
+  ]
+}

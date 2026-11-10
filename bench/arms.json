@@ -1,0 +1,28 @@
+{
+  "_comment": "Each arm is one way of reviewing the same target. `plugins` entries are copied from the repo, renamed (so they never clash with the installed copy) and loaded with --plugin-dir. Edit prompts freely, but keep them identical in spirit across arms: prompt wording is a bias source.",
+  "arms": {
+    "A_superpowers": {
+      "description": "Superpowers' own spec/plan review practice (needs the superpowers plugin enabled in your normal Claude Code profile).",
+      "plugins": [],
+      "prompt": "Use the superpowers skills to review the design document at {target} for flaws before anyone implements it. Use its spec/plan review step and a fresh-context reviewer subagent, and verify claims against the repository. Do not ask me any questions: decide yourself. Write a numbered list of every problem you found, with evidence, to FINDINGS.md, then apply fixes for the problems to the design document itself."
+    },
+    "B_baseline": {
+      "description": "Budget-matched baseline: N blind reviewers, merge and dedupe, one evidence-checking verifier, then edit. No debate. This is the Bugbot / Anthropic Code Review pattern.",
+      "plugins": [],
+      "prompt": "Review the design document at {target} for flaws before anyone implements it, as follows. (1) Launch 5 independent reviewer subagents in parallel, each with a different lens: red team and failure modes, product and requirements gaps, codebase fit, external systems and APIs, security and data. Each must verify the document's claims against the repository and cite evidence, and must not see the others' work. (2) Merge and de-duplicate their findings. (3) Launch one verifier subagent that checks every merged finding against the evidence and drops those it cannot confirm. (4) Write the confirmed findings, numbered, with evidence, to FINDINGS.md. (5) Apply fixes for the confirmed findings to the design document itself. Do not ask me any questions: decide yourself."
+    },
+    "C_dc_full": {
+      "description": "Full Design Court review loop, built from this repo's working tree.",
+      "plugins": [{"path": "plugins/design-court", "rename": "dc-full"}],
+      "prompt": "/dc-full:review {target} unattended",
+      "smoke_prompt": "/dc-full:review {target} quick review-only unattended"
+    },
+    "D_dc_nodebate": {
+      "description": "Design Court with cross-examination and rebuttal (steps 4b, 4c) disabled, everything else identical.",
+      "plugins": [{"path": "plugins/design-court", "rename": "dc-nodebate", "patch": "no_debate"}],
+      "prompt": "/dc-nodebate:review {target} unattended",
+      "smoke_prompt": "/dc-nodebate:review {target} quick review-only unattended"
+    }
+  },
+  "compare": [["C_dc_full", "B_baseline"], ["C_dc_full", "D_dc_nodebate"], ["C_dc_full", "A_superpowers"], ["B_baseline", "A_superpowers"]]
+}
