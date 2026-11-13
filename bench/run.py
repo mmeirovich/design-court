@@ -137,10 +137,17 @@ def run_one(job: dict) -> str:
     (rd / "raw.json").write_text(res["stdout"], encoding="utf-8")
     (rd / "stderr.txt").write_text(res["stderr"], encoding="utf-8")
     meta = summarize_cli_json(res["json"])
+    spawned = ((res["json"] or {}).get("subagent_stats") or {}).get("spawned")
+    meta["subagents_spawned"] = spawned
+    # A plugin arm that spawned no subagents never ran the plugin (e.g. slash command not found);
+    # its output would be a plain single-model review, so mark the run invalid instead of scoring it.
+    no_plugin_run = bool(arm.get("require_subagents")) and spawned == 0
     meta.update({
         "target": job["tdir"].name, "arm": job["arm_name"], "rep": job["rep"],
         "returncode": res["returncode"], "wall_s": res["wall_s"],
-        "ok": res["returncode"] == 0 and not meta["is_error"] and res["json"] is not None,
+        "ok": (res["returncode"] == 0 and not meta["is_error"] and res["json"] is not None
+               and not no_plugin_run),
+        "invalid_reason": "plugin did not run: 0 subagents spawned" if no_plugin_run else None,
         "bundle_bytes": len(bundle), "smoke": job["smoke"],
     })
     write_json(rd / "result.json", meta)
@@ -187,7 +194,7 @@ def main() -> None:
         sys.exit("no corpus targets found in %s" % a.corpus)
     if a.smoke:
         targets, a.reps = targets[:1], 1
-    out = Path(a.out) if a.out else ROOT / "results" / time.strftime("%Y%m%d-%H%M%S")
+    out = (Path(a.out) if a.out else ROOT / "results" / time.strftime("%Y%m%d-%H%M%S")).resolve()
     out.mkdir(parents=True, exist_ok=True)
     write_json(out / "config.json", {"arms": names, "targets": [t.name for t in targets],
                                      "reps": a.reps, "model": a.model, "smoke": a.smoke})

@@ -16,8 +16,9 @@ argv = sys.argv[1:]
 stdin = sys.stdin.read()
 
 
-def emit(result, cost):
-    print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": result,
+def emit(result, cost, spawned=4):
+    spawned = 0 if os.environ.get("FAKE_NO_SUBAGENTS") else spawned
+    print(json.dumps({"subagent_stats": {"spawned": spawned}, "type": "result", "subtype": "success", "is_error": False, "result": result,
                       "total_cost_usd": cost, "num_turns": 3, "duration_ms": 1000, "session_id": "fake",
                       "usage": {"input_tokens": 10, "output_tokens": 5}}))
 

@@ -76,6 +76,24 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("## Problems", rep)
             self.assertIn("run failed", rep)
 
+    def test_plugin_arm_that_never_ran_the_plugin_is_invalid(self):
+        with tempfile.TemporaryDirectory() as out:
+            r = sh(BENCH / "run.py", "--bypass-permissions", "--reps", "1", "--arms", "C_dc_full,B_baseline",
+                   "--out", out, env={"FAKE_NO_SUBAGENTS": "1"})
+            self.assertIn("C_dc_full/rep1 ok=False", r.stdout)   # require_subagents arm is rejected
+            self.assertIn("B_baseline/rep1 ok=True", r.stdout)   # arm without the requirement is not
+            sh(BENCH / "score.py", "--run-dir", out)
+            rep = sh(BENCH / "report.py", "--run-dir", out).stdout
+            self.assertIn("C_dc_full/rep1: run failed", rep)
+
+    def test_relative_out_dir_gives_absolute_plugin_paths(self):
+        # regression: a relative --out made --plugin-dir relative to the per-run workspace
+        r = subprocess.run([sys.executable, str(BENCH / "run.py"), "--dry-run", "--reps", "1",
+                            "--arms", "C_dc_full", "--out", "bench/results/_reltest"],
+                           capture_output=True, text=True, cwd=str(BENCH.parent),
+                           env=dict(os.environ, BENCH_CLAUDE_BIN=FAKE))
+        self.assertIn("--plugin-dir %s" % (BENCH.parent / "bench/results/_reltest/plugins/dc-full").resolve(), r.stdout)
+
     def test_refuses_without_explicit_permission_choice(self):
         with tempfile.TemporaryDirectory() as out:
             env = {k: v for k, v in os.environ.items() if k != "BENCH_PERMISSION_MODE"}

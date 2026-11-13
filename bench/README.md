@@ -87,14 +87,18 @@ Treat gaps under ~10-15 points as noise unless n is large.
 
 ## Known limits (read before trusting numbers)
 
-- **Not verified against a live CLI.** The harness was tested end to end only against a
-  stub (`tests/fake_claude.py`). Run `--smoke` first and read `raw.json` and `stderr.txt`.
-  Assumed, and worth confirming on your CLI version: `claude -p` reads the prompt from
-  stdin; `--output-format json` returns `result`, `total_cost_usd`, `usage`;
-  `--plugin-dir`, `--permission-mode`, `--model`, `--max-budget-usd` exist; a
-  `/plugin:skill` prompt invokes the skill in headless mode; and `total_cost_usd`
-  includes subagent spend. If cost reads `-`, the report's cost columns are not
-  comparable; wall time is measured independently.
+- **Live-CLI coverage is a single smoke run.** The harness is unit-tested against a stub
+  (`tests/fake_claude.py`) and has been run once against a live CLI (2.1.322, Sonnet, one
+  target, quick review-only prompts for the Design Court arms). That run confirmed the
+  prompt-on-stdin, `--output-format json`, `--plugin-dir` (absolute paths only),
+  `--permission-mode`, `--max-budget-usd` and `/plugin:skill` invocation assumptions. It
+  proved wiring only: every arm hit 100% recall on `ex-01-webhook`, so it says nothing about
+  which arm is better. Re-run `--smoke` after a CLI upgrade and read `raw.json` and
+  `stderr.txt`. If cost reads `-`, the report's cost columns are not comparable; wall time
+  is measured independently.
+- **Plugin arms are checked for actually running the plugin.** An arm with
+  `require_subagents` that spawns zero subagents (e.g. the slash command was not found) is
+  marked failed and listed under Problems instead of being scored as a plain review.
 - **Profile isolation is partial.** Variants are renamed so they cannot clash, but your
   installed plugins (Superpowers, Design Court 1.0.x, others) still load in every arm. Arms
   name their skills explicitly to limit cross-triggering. For a cleaner run, restrict

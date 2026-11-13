@@ -14,12 +14,14 @@
     "C_dc_full": {
       "description": "Full Design Court review loop, built from this repo's working tree.",
       "plugins": [{"path": "plugins/design-court", "rename": "dc-full"}],
+      "require_subagents": true,
       "prompt": "/dc-full:review {target} unattended",
       "smoke_prompt": "/dc-full:review {target} quick review-only unattended"
     },
     "D_dc_nodebate": {
       "description": "Design Court with cross-examination and rebuttal (steps 4b, 4c) disabled, everything else identical.",
       "plugins": [{"path": "plugins/design-court", "rename": "dc-nodebate", "patch": "no_debate"}],
+      "require_subagents": true,
       "prompt": "/dc-nodebate:review {target} unattended",
       "smoke_prompt": "/dc-nodebate:review {target} quick review-only unattended"
     }
