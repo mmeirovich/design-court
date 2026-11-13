@@ -1,0 +1,31 @@
+{
+  "id": "ex-01-webhook",
+  "synthetic": true,
+  "note": "Defects were planted deliberately. Every one is verifiable from target.md plus repo/.",
+  "defects": [
+    {"id": "D1", "severity": "major", "title": "Signature computed over re-serialised JSON, not the raw body",
+     "detect_if": "says the HMAC must be computed over the raw request body bytes (docs/acmepay-api.md), not json.dumps of the parsed body",
+     "fixed_if": "section 2 verifies the signature over the raw bytes before/independent of parsing"},
+    {"id": "D2", "severity": "blocker", "title": "'Exactly once' delivery assumed; vendor is at-least-once and unordered",
+     "detect_if": "says duplicates (and/or out-of-order delivery) must be handled, e.g. dedupe on event id / idempotent updates",
+     "fixed_if": "design adds idempotency/de-duplication and drops the exactly-once claim"},
+    {"id": "D3", "severity": "major", "title": "Synchronous processing exceeds the 5 second response deadline",
+     "detect_if": "points out the 5s limit versus ledger call of 2-4s plus email, and recommends acknowledging fast and processing asynchronously",
+     "fixed_if": "design acknowledges quickly and moves email/ledger work off the request path"},
+    {"id": "D4", "severity": "minor", "title": "queue.enqueue_job does not exist; the function is queue.publish",
+     "detect_if": "notes enqueue_job is not in src/queue.py and the real function is publish",
+     "fixed_if": "references queue.publish"},
+    {"id": "D5", "severity": "major", "title": "NOT NULL column without default on a ~40M row table",
+     "detect_if": "says ADD COLUMN ... NOT NULL without a default fails or locks/rewrites the 40M-row payments table and needs a nullable column / backfill",
+     "fixed_if": "column is nullable or has a default, with a safe migration approach"},
+    {"id": "D6", "severity": "minor", "title": "Retention contradiction: 30 days (section 4) vs 90 days (section 7)",
+     "detect_if": "notes the two retention periods for webhook payloads conflict",
+     "fixed_if": "one consistent retention period (or an explicit distinction)"},
+    {"id": "D7", "severity": "major", "title": "Secret stored in a settings file; repo convention is get_secret() from the environment",
+     "detect_if": "says the secret must come from the environment via src/config.py get_secret, not from config/settings.yaml",
+     "fixed_if": "secret loaded through get_secret"},
+    {"id": "D8", "severity": "major", "title": "Refund behaviour undefined: partial refunds, refund after dispute, customer notification policy",
+     "detect_if": "raises that the docs allow partial refunds / disputes but the design maps every refund to status 'refunded' and notifies, leaving behaviour for partial refunds or refund-after-dispute (or whether to email) for the owner to decide",
+     "fixed_if": "design (or an open question) specifies behaviour for partial refunds and disputed payments"}
+  ]
+}
