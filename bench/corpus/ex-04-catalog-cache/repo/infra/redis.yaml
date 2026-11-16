@@ -1,0 +1,12 @@
+# Redis for the catalog service
+cluster: catalog-cache
+engine: redis
+engine_version: "7.1"
+node_memory_gb: 4
+replicas: 1
+parameters:
+  # the other 2 GB of the node is left for replication buffers and
+  # copy-on-write during RDB snapshots
+  maxmemory: 2gb
+  maxmemory-policy: allkeys-lru
+  save: "900 1"

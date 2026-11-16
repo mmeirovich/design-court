@@ -1,0 +1,31 @@
+# Rate limit plans, loaded at API start-up.
+# *_per_min values are what the plan is sold as and what X-RateLimit-Limit reports.
+# burst is the bucket capacity; refill_per_sec is the continuous refill rate.
+plans:
+  free:
+    key:
+      limit_per_min: 100
+      burst: 200
+      refill_per_sec: 1.0
+    account:
+      limit_per_min: 300
+      burst: 600
+      refill_per_sec: 5.0
+  pro:
+    key:
+      limit_per_min: 1200
+      burst: 2400
+      refill_per_sec: 20.0
+    account:
+      limit_per_min: 3600
+      burst: 7200
+      refill_per_sec: 60.0
+  enterprise:
+    key:
+      limit_per_min: 6000
+      burst: 12000
+      refill_per_sec: 100.0
+    account:
+      limit_per_min: 30000
+      burst: 60000
+      refill_per_sec: 500.0

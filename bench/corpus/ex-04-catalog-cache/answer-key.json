@@ -1,0 +1,43 @@
+{
+  "id": "ex-04-catalog-cache",
+  "synthetic": true,
+  "note": "Defects and traps were planted deliberately. Every one is verifiable from target.md plus repo/.",
+  "defects": [
+    {"id": "D1", "severity": "blocker",
+     "title": "Cache key omits locale and currency, which the handler varies the response by",
+     "where": "target.md 3.1 and 3.2 (key `catalog:v1:product:{sku}`, whole response body cached); repo/src/handlers/product.ts (name, description, variant labels chosen by Accept-Language; price converted by ?currency= or geo)",
+     "detect_if": "says the cached value is the full response, which differs per locale and per currency (src/handlers/product.ts), but the key contains only the SKU, so one user's language/currency response is served to others (wrong language, wrong currency/price)",
+     "fixed_if": "key includes the locale and currency (or the cache stores locale/currency-independent data and formats per request), and invalidation and memory sizing account for the variants"},
+    {"id": "D2", "severity": "blocker",
+     "title": "Invalidation runs inside the DB transaction before commit, so a concurrent read can repopulate the old value",
+     "where": "target.md 3.5; repo/src/services/productWriter.ts (db.transaction wraps the update; commit happens after the callback returns)",
+     "detect_if": "says the DEL happens before the transaction commits, so a reader that misses in that window loads the still-old committed row and re-caches it, leaving stale data until TTL (6 h) or the next write; invalidation must happen after commit (or the cache entry be versioned/refilled safely)",
+     "fixed_if": "invalidation is performed after the transaction commits (e.g. after commit hook or on the post-commit product.updated event), with the race window addressed or bounded by a short TTL"},
+    {"id": "D3", "severity": "major",
+     "title": "Cache helper takes TTL in milliseconds; the design passes seconds",
+     "where": "target.md 3.1 snippet (`PRODUCT_TTL = 21_600; // seconds`), 3.3; repo/src/lib/cache.ts (`ttlMs`, uses Redis PX)",
+     "detect_if": "says getOrLoad/set take ttlMs (milliseconds) so passing 21_600 gives about 21.6 seconds instead of 6 hours, which defeats the 95% hit-ratio and DB-relief goals",
+     "fixed_if": "the call passes milliseconds (21_600_000) or the helper/constant units are made consistent"},
+    {"id": "D4", "severity": "major",
+     "title": "Hot-key expiry stampede: no coalescing, and the numbers exceed the DB pool",
+     "where": "target.md 2 (top SKU about 360 rps, campaign query about 300 ms), 3.3 (jitter), 4.2 (coalescing rejected); repo/infra/catalog-service.yaml (6 pods x DB_POOL_MAX 10 = 60 connections)",
+     "detect_if": "says that rejecting coalescing because the average miss rate is low (4.2: about 120 rps) ignores that misses on the top campaign key are correlated: when it expires, is evicted or is invalidated by a write, every request arriving during the roughly 300 ms load runs the same query (about 360 rps x 0.3 s, roughly 100 or more concurrent identical loads, i.e. about 18 per pod against DB_POOL_MAX 10, more than the 60 pooled connections), saturating the pool and delaying other traffic; per-key jitter does not help a single hot key; recommends single-flight/lock, stale-while-revalidate or early refresh. The exact arithmetic is not required if the hot-key thundering herd and the missing coalescing are identified with reference to the skew of the top SKU",
+     "fixed_if": "design adds request coalescing or equivalent for hot keys (and acknowledges invalidation of a hot key triggers the same burst)"},
+    {"id": "D5", "severity": "major",
+     "title": "Product decision: how stale a price may be at checkout is never decided; cart prices from the cached endpoint",
+     "where": "target.md 2 (cart service is a consumer), 3.3 (6 h TTL as 'safety net'), no mention of checkout; repo/src/services/cart.ts (totalCents charged comes from the catalog API response)",
+     "detect_if": "says the cart/checkout total is computed from the same cached price (cart.ts), so a stale or missed invalidation means customers are shown/charged an outdated price for up to the TTL, and that the acceptable staleness for checkout (or whether checkout bypasses/validates against the source of truth) is a business/owner decision that the doc silently makes",
+     "fixed_if": "design states an owner-approved staleness bound for prices and how checkout gets an authoritative price (bypass, revalidation at order time, or shorter bound), or lists it as an open question for the owner"},
+    {"id": "D6", "severity": "minor",
+     "title": "Memory sizing: 900k x 2.8 KB is about 2.5 GB, above the 2 GB maxmemory (not the 4 GB node)",
+     "where": "target.md 4.1; repo/infra/redis.yaml (node_memory_gb 4 but maxmemory 2gb, rest reserved)",
+     "detect_if": "multiplies 900k x 2.8 KB (about 2.5 GB, more with per-key overhead) and compares with maxmemory 2gb in infra/redis.yaml rather than the 4 GB node size, concluding the full catalog does not fit and LRU eviction will cut the hit ratio (and that adding locale/currency variants makes it far worse)",
+     "fixed_if": "sizing uses maxmemory, accounts for key overhead and variants, and either raises the instance/maxmemory or caps the resident set"}
+  ],
+  "traps": [
+    {"id": "T1", "title": "30 s negative caching of not-found/inactive SKUs looks like it could hide newly launched products",
+     "why_correct": "target.md 3.4 explains new SKUs are created inactive and activated by a scheduled job at least 15 minutes before launch, so a 30 s negative entry cannot delay a launch; cache.ts has NEGATIVE_TTL_MS = 30_000 (correct units) and the handler returns 404 for non-active products so the behaviour is consistent."},
+    {"id": "T2", "title": "Stock/availability is not invalidated and looks like a staleness hole",
+     "why_correct": "target.md 1 and 3.2 state stock is served by a separate endpoint and not in the payload; src/handlers/product.ts has no stock or availability field in the response, so inventory changes cannot make the cached payload stale."}
+  ]
+}

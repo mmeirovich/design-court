@@ -1,0 +1,29 @@
+{
+  "version": 87,
+  "updatedAt": "2026-11-09T14:02:11Z",
+  "killed": ["inline-comments-v2"],
+  "flags": {
+    "shared-boards-v2": { "kind": "rollout", "percent": 10 },
+    "checkout-v3": { "kind": "rollout", "percent": 0.5 },
+    "new-onboarding-checklist": { "kind": "rollout", "percent": 25 },
+    "inline-comments-v2": { "kind": "rollout", "percent": 40 },
+    "pricing-page-layout": {
+      "kind": "experiment",
+      "variants": { "control": 5000, "stacked": 2500, "carousel": 2500 }
+    },
+    "usage-based-pricing-2027": {
+      "kind": "rollout",
+      "percent": 0,
+      "allowOrgs": [
+        { "id": 2210, "name": "Halvorsen Logistics" },
+        { "id": 4471, "name": "Meridian Bank" }
+      ]
+    },
+    "lumen-crm-import": {
+      "kind": "rollout",
+      "percent": 0,
+      "allowOrgs": [{ "id": 9013, "name": "Lumen Software (acquisition pilot)" }]
+    },
+    "ai-contract-review": { "kind": "rollout", "percent": 0 }
+  }
+}

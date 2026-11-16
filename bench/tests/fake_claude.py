@@ -2,9 +2,10 @@
 """Stub of `claude -p --output-format json` for testing the harness without API calls.
 
 Behaves differently per arm (recognised from the prompt) so the report has something to
-rank: C finds D1-D5, D finds D1-D3, B finds D1-D4, A finds D1-D2. It also asserts that
-plugin variants were built correctly. As the judge it marks a defect detected when the
-text PLANTED:<id> appears in the tool output, and fixed when FIXED:<id> does.
+rank: C finds D1-D5, D finds D1-D3, B finds D1-D4, A finds D1-D2, and only D flags trap T1.
+It also asserts that plugin variants were built correctly. As the judge it marks a defect
+detected when the text PLANTED:<id> appears in the tool output, fixed when FIXED:<id>
+does, and a trap flagged when TRAP:<id> does. It checks the judge was shown the repo.
 """
 import json
 import os
@@ -35,6 +36,10 @@ if stdin.startswith("You are scoring"):
                 "fixed": ("FIXED:%s" % d["id"] in out) or False, "evidence": "stub"} for d in key["defects"]]
     findings = [{"summary": "found %s" % d["id"], "class": "defect:%s" % d["id"]} for d in defects if d["detected"]]
     findings.append({"summary": "style nit", "class": "invalid"})
+    findings += [{"summary": "flags %s" % t["id"], "class": "trap:%s" % t["id"]}
+                 for t in key.get("traps", []) if "TRAP:%s" % t["id"] in out]
+    if "=== REPOSITORY FILES" not in stdin:
+        fail("judge prompt is missing the repository files")
     emit("Here is my verdict:\n" + json.dumps({"defects": defects, "findings": findings}) + "\nDone.", 0.01)
     sys.exit(0)
 
@@ -62,6 +67,7 @@ elif "5 independent" in stdin:
 else:
     ids, cost, where = ["D1", "D2"], 1.0, Path("FINDINGS.md")
 where.parent.mkdir(parents=True, exist_ok=True)
-where.write_text("\n".join("- PLANTED:%s identified" % i for i in ids) + "\n")
+flags = ["- TRAP:T1 flagged"] if "/dc-nodebate:" in stdin else []
+where.write_text("\n".join(["- PLANTED:%s identified" % i for i in ids] + flags) + "\n")
 target.write_text(target.read_text() + "\n" + "\n".join("FIXED:%s" % i for i in ids[:1]) + "\n")
 emit("Review complete. " + " ".join("PLANTED:%s" % i for i in ids[:1]), cost)

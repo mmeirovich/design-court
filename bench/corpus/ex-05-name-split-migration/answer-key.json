@@ -1,0 +1,43 @@
+{
+  "id": "ex-05-name-split-migration",
+  "synthetic": true,
+  "note": "Defects and traps were planted deliberately. Every one is verifiable from target.md plus repo/.",
+  "defects": [
+    {"id": "D1", "severity": "blocker",
+     "title": "Column drop ships in the same release as the code switch, but deploys are rolling and migrations run before the rollout",
+     "where": "target.md Phase 5 (0047 DROP COLUMN name in R2, 'normal release pipeline'), Risks and rollback; repo/deploy/accounts-api.yaml (RollingUpdate, 8 pods, minReadySeconds 30), repo/docs/runbooks/schema-changes.md (Deploys: migrations run before the rollout), repo/src/accounts/users.py (old code SELECTs and writes name)",
+     "detect_if": "says that dropping users.name in the same release as the code that stops using it breaks the old R1 pods that are still running during the rolling update (and the migration job runs before the rollout starts), so every read/write on the old pods fails with 'column name does not exist'; the contract step must be a later release after R2 is fully rolled out (and rollback to R1 is impossible once the column is gone)",
+     "fixed_if": "the DROP COLUMN is moved to a separate later release/migration that runs only after all pods run the R2 code (and rollback no longer depends on the dropped column)"},
+    {"id": "D2", "severity": "blocker",
+     "title": "Single UPDATE backfill of about 62M rows in one migration transaction",
+     "where": "target.md Phase 2 (staging 3.1M rows in 95 s, about 30 minutes expected in prod); repo/db/migrate.py (each migration file runs in one transaction), repo/src/accounts/users.py touch_last_seen (UPDATE on every login), repo/docs/runbooks/schema-changes.md (keep transactions on users under 30 s; WAL and replica lag)",
+     "detect_if": "multiplies out about 62M rows / 3.1M x 95 s as roughly 30 minutes in a single transaction, which holds row locks on updated rows until commit so logins (touch_last_seen) and profile updates block or fail, bloats WAL and lags replicas, and violates the 30 s transaction guideline; calls for batched backfill in many short transactions (e.g. a no-transaction migration or background job, keyed batches)",
+     "fixed_if": "backfill is done in bounded batches with separate commits (outside one long transaction), with progress and throttling, and the time/lock impact re-estimated"},
+    {"id": "D3", "severity": "major",
+     "title": "Unlisted consumer: search indexer reads users.name directly from the replica",
+     "where": "target.md Current state ('Only accounts-api connects to the users table' and the consumer table); repo/services/search-indexer/sync_users.py (SELECT id, email, name, ... FROM users)",
+     "detect_if": "points out that services/search-indexer/sync_users.py queries users.name straight from the database, contradicting the claim that only accounts-api touches the table, and that dropping the column (or leaving it unmaintained after R2) breaks or degrades user search; it needs to be listed and migrated first",
+     "fixed_if": "the consumer table includes the search indexer with a migration step before the column drop, and the 'only accounts-api' claim is removed or corrected"},
+    {"id": "D4", "severity": "major",
+     "title": "Product decision made silently: split on the first space for mononyms and multi-part names",
+     "where": "target.md Naming rule (and TL;DR, tax export use); no repo evidence needed",
+     "detect_if": "says splitting on the first space mis-assigns multi-word given names and multi-part family names (e.g. 'Mary Jo Smith', 'van der Berg', 'de la Cruz') and gives empty family_name for mononyms or names written without spaces, and that because these fields feed the tax export and greetings the rule (and what to do with mononyms) is a product/legal decision for the owner, not an engineering default; user self-correction after the fact is not sufficient. A finding only about the trailing space in the concatenated v1 name does not count here (see D6)",
+     "fixed_if": "design records an owner decision on the split rule and mononym/multi-part handling (or an alternative such as a review flow or capturing given/family explicitly), or lists it as an open question for the owner"},
+    {"id": "D5", "severity": "major",
+     "title": "Dual-write gap: backfill runs two days before dual-write ships, nothing re-syncs rows written in between",
+     "where": "target.md Timeline (backfill 8 Mar, R1 10 Mar), Phase 2 and Phase 4 (sampled verification of 1,000 rows), Phase 5; repo/deploy/accounts-api.yaml (rolling R1 rollout), repo/src/accounts/users.py (create_user and update_name write name only today)",
+     "detect_if": "says rows created or renamed after the backfill but before R1 is fully rolled out (old pods write only name) keep the default empty given_name/family_name, and nothing re-runs the backfill, uses a trigger, or fully reconciles before R2 switches reads to the new columns; a 1,000-row sample will not catch it",
+     "fixed_if": "design adds a re-run of the backfill after R1 is fully deployed or a DB trigger/other sync, plus a full-table consistency check as a gate before R2"},
+    {"id": "D6", "severity": "minor",
+     "title": "Derived name `given_name || ' ' || family_name` gives a trailing space for mononyms and fails its own verification",
+     "where": "target.md Naming rule item 4 (family_name = ''), Phase 4 verification, Phase 5 and Compatibility (v1 name derived by concatenation)",
+     "detect_if": "notes that for users with an empty family_name the concatenation yields 'Name ' with a trailing space, so v1 responses differ from the stored name and the Phase 4 equality check fails for those rows; should join only non-empty parts (e.g. concat_ws or trim). A finding only about how names are split (multi-part names, mononyms having an empty family_name) without the concatenation/trailing-space consequence does not count here (see D4)",
+     "fixed_if": "the derived name and the verification use a join that omits the separator for empty parts (or trim the result)"}
+  ],
+  "traps": [
+    {"id": "T1", "title": "CREATE INDEX CONCURRENTLY inside a migration looks like it breaks the transactional runner",
+     "why_correct": "target.md Phase 3 puts it in its own file with the `-- migrate:no-transaction` header; repo/db/migrate.py runs files with that first line in autocommit mode, and docs/runbooks/schema-changes.md prescribes exactly this. It runs after the backfill, on populated data."},
+    {"id": "T2", "title": "ADD COLUMN ... NOT NULL DEFAULT '' on a 62M-row table looks like a table rewrite and the empty default looks wrong",
+     "why_correct": "A constant default is a metadata-only change on PostgreSQL 11+; db/schema.sql and docs/runbooks/schema-changes.md state PostgreSQL 14 and say constant defaults do not rewrite the table. The default also keeps old-code INSERTs working during the expand phase (target.md Phase 1)."}
+  ]
+}
