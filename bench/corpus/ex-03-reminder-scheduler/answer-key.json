@@ -1,0 +1,43 @@
+{
+  "id": "ex-03-reminder-scheduler",
+  "synthetic": true,
+  "note": "Defects and traps were planted deliberately. Every one is verifiable from target.md plus repo/.",
+  "defects": [
+    {"id": "D1", "severity": "blocker",
+     "title": "next_reminder_at advanced by a fixed 24 hours, so the local send time shifts by an hour after each DST change",
+     "where": "target.md 'The tick' (process: next_reminder_at + interval '24 hours', 'keeps the schedule anchored'); contrast with next_nine in 'Scheduling a user' which is DST-correct",
+     "detect_if": "says that adding 24 hours to a stored UTC instant is not 'same local time tomorrow' in zones with DST: after a clock change the reminder moves to 8:00 or 10:00 local and stays shifted until recomputed; the next run must be recomputed from the user's zone and local 9:00 (e.g. with next_nine), not by adding a fixed duration",
+     "fixed_if": "the tick computes the next run from the user's IANA zone (local date + 1 day at 09:00, converted to UTC) instead of adding 24 hours"},
+    {"id": "D2", "severity": "major",
+     "title": "users.timezone is assumed always set, but about 11% of rows are NULL",
+     "where": "target.md 'The data' ('every enabled user has one'), 'Scheduling a user' (ZoneInfo(user.timezone)), Rollout step 1 (backfill); repo/db/schema.sql (comment on timezone: NULL for ~11% of rows; partial index excludes NULL next_reminder_at)",
+     "detect_if": "says the schema allows a NULL timezone (about 11% of all rows, legacy and mobile-web accounts) and that enabled users are not guaranteed to have one (the reminder flag was backfilled from the old in-app prompt, not set through the settings page that requires a zone), so ZoneInfo(None) raises in next_nine / the backfill, or those users never get a next_reminder_at and silently never receive reminders; a default or fallback and a decision on what to do with them is needed",
+     "fixed_if": "doc handles NULL timezone explicitly (fallback zone, prompt the user to choose, or exclude them with a stated consequence) and the backfill and next_nine cope with it"},
+    {"id": "D3", "severity": "major",
+     "title": "Peak-tick duration estimate is wrong: 150k sends at 25 ms with 4 workers takes about 15.6 minutes, not about 4",
+     "where": "target.md 'Sizing' (3,750 s of sending 'finishes in about 4 minutes' inside a 5-minute interval) and the alert threshold in 'Failure handling'; repo/infra/reminders-cronjob.yaml (SEND_WORKERS=4, schedule */5)",
+     "detect_if": "does the arithmetic using SEND_WORKERS=4 from infra/reminders-cronjob.yaml: 150,000 x 25 ms = 3,750 s divided by 4 workers is about 938 s (about 15 minutes), which exceeds the 5-minute interval (and the 240 s alert threshold); the claim that it finishes in about 4 minutes would need about 16 workers",
+     "fixed_if": "sizing uses the real worker count and either raises concurrency/uses batch sending or shards the work so that the peak tick fits inside the interval, or states that runs exceed the interval and is designed for it; any fix must respect the 500 msg/s provider limit (150k sends need at least 300 s even at that limit, so the peak cannot be sent inside one 5-minute tick or under the 240 s alert unless it is spread across ticks or the alert is revised)"},
+    {"id": "D4", "severity": "blocker",
+     "title": "Overlapping CronJob runs with no claim or lock send duplicate reminders",
+     "where": "target.md 'The tick' (select due rows, send, then update; 'only ever picked up once per day'); repo/infra/reminders-cronjob.yaml (concurrencyPolicy: Allow)",
+     "detect_if": "says the CronJob has concurrencyPolicy Allow and the job selects due users without claiming them (no FOR UPDATE SKIP LOCKED, status/lease column or conditional update before sending), so a run that is still sending when the next tick starts re-selects users that have not yet been advanced and sends them the reminder again (several times at the peak tick)",
+     "fixed_if": "rows are claimed atomically before sending (e.g. SELECT ... FOR UPDATE SKIP LOCKED or an UPDATE ... RETURNING claim) and/or concurrencyPolicy is Forbid, with the design stating how duplicate sends are prevented"},
+    {"id": "D5", "severity": "major",
+     "title": "Whether reminder emails honour the global unsubscribe is silently decided; the email policy treats unclassified email as promotional",
+     "where": "target.md 'Who gets an email' (eligible = reminder_enabled only); repo/docs/email-policy.md (non-transactional email must not go to users with email_opt_out_at; new categories need written Legal classification); repo/db/schema.sql (email_opt_out_at)",
+     "detect_if": "says the due-set query and eligibility rule ignore users.email_opt_out_at, that docs/email-policy.md treats a new category as promotional (opt-out must be honoured, and a per-template toggle does not replace that) unless Legal classifies it otherwise, and that reminders must either exclude opted-out users or get Legal's/the owner's classification as transactional (a product/legal call, not an engineering one)",
+     "fixed_if": "design excludes users with email_opt_out_at set, or records Legal's written classification of reminders as transactional"},
+    {"id": "D6", "severity": "minor",
+     "title": "Failure path relies on send_template raising, but it catches provider errors and returns False",
+     "where": "target.md 'The tick' (if a send fails the exception propagates before the UPDATE) and 'Failure handling' (provider outage: sends raise); repo/src/mailer.py (send_template returns False on ProviderError)",
+     "detect_if": "says mailer.send_template does not raise on provider failure (it logs and returns False) and process ignores the return value, so failed sends still advance next_reminder_at and are never retried, contrary to the described retry behaviour",
+     "fixed_if": "process checks the boolean result (or the helper is changed to raise) and only advances next_reminder_at after a successful send"}
+  ],
+  "traps": [
+    {"id": "T1", "title": "Due-set query on a 3.1M-row table appears to lack an index on next_reminder_at",
+     "why_correct": "repo/db/schema.sql defines users_reminder_due_idx, a partial index on next_reminder_at WHERE reminder_enabled AND next_reminder_at IS NOT NULL. The query's predicate (reminder_enabled AND next_reminder_at <= now) matches it, so the due set is read through the index."},
+    {"id": "T2", "title": "Storing IANA zone names and per-user UTC instants (no offsets, no hourly buckets) looks like it would mishandle DST and half-hour zones",
+     "why_correct": "Zone names are the right thing to store because an offset is wrong for part of the year, and next_nine converts local 9:00 in the user's zone to a UTC instant, which is DST-correct and needs no special case for +5:30 or +5:45 zones. The DST problem is only in the later +24h advance (D1), not in the storage choice."}
+  ]
+}

@@ -1,0 +1,35 @@
+distribution: app-edge
+hostnames:
+  - app.pixelnest.example
+
+origins:
+  app:
+    domain: app-origin.internal.pixelnest.example
+    protocol: https
+  media:
+    domain: pn-user-media.objects.stratus.example
+    protocol: https
+
+behaviors:
+  - path: /avatars/*
+    origin: media
+    methods: [GET, HEAD]
+    cache:
+      default_ttl_seconds: 86400
+      max_ttl_seconds: 86400
+    response_headers:
+      from_origin: all
+      add:
+        Access-Control-Allow-Origin: "https://app.pixelnest.example"
+
+  - path: /*
+    origin: app
+    methods: [GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS]
+    cache:
+      default_ttl_seconds: 0
+    response_headers:
+      from_origin: all
+      add:
+        Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options: "nosniff"
+        Content-Security-Policy: "default-src 'self'; img-src 'self' data:; connect-src 'self' https://pn-user-media.objects.stratus.example; script-src 'self'; object-src 'none'"

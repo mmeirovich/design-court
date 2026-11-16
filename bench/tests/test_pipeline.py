@@ -14,12 +14,16 @@ sys.path.insert(0, str(BENCH))
 from common import extract_json_obj, parse_cli_json  # noqa: E402
 
 FAKE = str(Path(__file__).resolve().parent / "fake_claude.py")
+CORPUS = str(Path(__file__).resolve().parent / "corpus")  # t-01 (8 defects, 1 trap), t-02 control (0 defects)
 
 
 def sh(*args, env=None):
     e = dict(os.environ, BENCH_CLAUDE_BIN=FAKE)
     e.update(env or {})
-    return subprocess.run([sys.executable, *map(str, args)], capture_output=True, text=True, env=e)
+    args = list(map(str, args))
+    if Path(args[0]).name in ("run.py", "score.py", "report.py"):
+        args += ["--corpus", CORPUS]
+    return subprocess.run([sys.executable, *args], capture_output=True, text=True, env=e)
 
 
 class UnitTests(unittest.TestCase):
@@ -39,22 +43,23 @@ class PipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             r = sh(BENCH / "run.py", "--bypass-permissions", "--reps", "6", "--out", out)
             self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
-            self.assertEqual(r.stdout.count(" ok=True"), 24, r.stdout)
+            self.assertEqual(r.stdout.count(" ok=True"), 48, r.stdout)
 
             # resuming must not redo finished runs
             r2 = sh(BENCH / "run.py", "--bypass-permissions", "--reps", "6", "--out", out)
-            self.assertEqual(r2.stdout.count("skip "), 24)
+            self.assertEqual(r2.stdout.count("skip "), 48)
 
             r = sh(BENCH / "score.py", "--run-dir", out)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("scored 24, unparseable 0", r.stdout)
+            self.assertIn("scored 48, unparseable 0", r.stdout)
 
             r = sh(BENCH / "report.py", "--run-dir", out)
             self.assertEqual(r.returncode, 0, r.stderr)
             rep = r.stdout
             for arm in ("A_superpowers", "B_baseline", "C_dc_full", "D_dc_nodebate"):
-                self.assertIn("| %s | 6 |" % arm, rep)
-            # weighted recall = detected weight / 15 (blocker 3, major 2, minor 1)
+                self.assertIn("| %s | 12 |" % arm, rep)
+            # weighted recall = detected weight / 15 (blocker 3, major 2, minor 1), from t-01 only:
+            # the control target t-02 has no defects and must not drag recall to 0 or crash
             row = {l.split("|")[1].strip(): l for l in rep.splitlines() if l.startswith("| ") and "_" in l.split("|")[1]}
             self.assertIn("67% +- 0%", row["C_dc_full"])    # D1-D5 = 10/15
             self.assertIn("53% +- 0%", row["B_baseline"])   # D1-D4 = 8/15
@@ -64,6 +69,10 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("cost ratio 2.5x", rep)
             self.assertIn("C_dc_full is better", rep)
             self.assertNotIn("## Problems", rep)
+            # only D falls for trap T1, on both targets
+            self.assertIn("| t-01-webhook / T1 Flag-gated rollout | 0% | 0% | 0% | 100% |", rep)
+            self.assertIn("| t-02-clean / T1 Looks odd, is fine | 0% | 0% | 0% | 100% |", rep)
+            self.assertIn("| 70% | 100% | $", row["D_dc_nodebate"])   # invalid rate (2/5 on t-01, 2/2 on control) and trap rate
 
     def test_failed_runs_are_reported_not_hidden(self):
         with tempfile.TemporaryDirectory() as out:

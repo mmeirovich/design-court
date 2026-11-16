@@ -1,0 +1,13 @@
+{
+  "id": "t-02-clean",
+  "synthetic": true,
+  "note": "control",
+  "defects": [],
+  "traps": [
+    {
+      "id": "T1",
+      "title": "Looks odd, is fine",
+      "why_correct": "fine"
+    }
+  ]
+}

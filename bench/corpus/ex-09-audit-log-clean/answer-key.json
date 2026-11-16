@@ -1,0 +1,17 @@
+{
+  "id": "ex-09-audit-log-clean",
+  "synthetic": true,
+  "control": true,
+  "note": "Control target. The design was written to be correct and carries no planted defects; every claim was checked against repo/. It exists to measure false positives. Findings that are not about one of the traps should be judged on their merits against target.md and repo/.",
+  "defects": [],
+  "traps": [
+    {"id": "T1", "title": "The audit row is written in the same transaction as the admin action, so an audit failure blocks the action",
+     "why_correct": "Section 3 states the reason: repo/docs/compliance/retention-policy.md control AU-2 requires that a privileged action may not take effect unless its audit record is committed with it. Both writes go to the same primary database (no new network dependency) and section 8 tests that a failed audit insert leaves the account unchanged. Recommending asynchronous or best-effort writing would violate AU-2."},
+    {"id": "T2", "title": "The retention period is 400 days, an unusual figure",
+     "why_correct": "repo/docs/compliance/retention-policy.md (Retention periods) sets admin audit records at 400 days from the event time with deletion within 60 days after expiry. Section 7 follows it, and the copy windows work out: backups 35 days after deletion, about 36 days after expiry; SIEM index about 401 days."},
+    {"id": "T3", "title": "Audit events are delivered to the SIEM at-least-once, with no exactly-once guarantee",
+     "why_correct": "repo/src/outbox/relay.ts publishes then deletes in one transaction, so redelivery is possible, but repo/src/siem/consumer.ts (handleSiemEvent) skips any event_id already in siem_export_seen, and emitEvent in repo/src/db/tx.ts stores event_id in the outbox payload so a redelivered row carries the same id. Section 6 also states the one residual case (send succeeds, commit fails) and why a duplicate in the SIEM is acceptable; the database is the system of record."},
+    {"id": "T4", "title": "The log is called append-only yet a role is granted DELETE and the job deletes rows",
+     "why_correct": "AU-11 in repo/docs/compliance/retention-policy.md requires deletion within 60 days of expiry. Section 4 and section 6 give DELETE only to a separate audit_retention login role used by the retention job, not to app_rw (revoked; the REVOKE is needed because repo/db/schema.sql grants app_rw UPDATE and DELETE on new tables by default). Updates are blocked by privilege and by a trigger. AU-9 constrains the people whose actions are recorded, not the retention job."}
+  ]
+}

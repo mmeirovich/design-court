@@ -1,0 +1,75 @@
+{
+  "id": "ex-07-flag-rollout",
+  "synthetic": true,
+  "note": "Defects and traps were planted deliberately. Every one is verifiable from target.md plus repo/.",
+  "defects": [
+    {
+      "id": "D1",
+      "severity": "major",
+      "title": "Rollout bucket is userId % 100 with no per-flag salt, so every flag's first N% is the same users",
+      "where": "target.md 'Rollouts' (bucket = userId % 100) and 'Ramp plan' (up to six flags in flight read against the same baselines); repo/src/flags/client.ts enabled()",
+      "detect_if": "says that because the bucket depends only on the user id and not on the flag key, users in low buckets (0-9) are in the first 10% of every flag, so concurrent rollouts/experiments hit the same people and are correlated/confounded (the same users take all the risk; effects cannot be separated); the bucket should be derived from a hash of flag key plus user id",
+      "fixed_if": "rollout bucket is computed from a hash that includes the flag key (as variant() already does) while keeping monotonic ramps"
+    },
+    {
+      "id": "D2",
+      "severity": "blocker",
+      "title": "Logged-out visitors have no user id: Number(null) % 100 is bucket 0, so they are in every rollout above 0% and all share one experiment variant",
+      "where": "target.md R7, 'Rollouts' ('Every browser session carries the user's id'), 'Ramp plan' (logged-out pricing experiment); repo/src/session.ts (VISITOR has userId null), repo/src/flags/client.ts (Number(session.userId) % 100; fnv1a of 'key:null')",
+      "detect_if": "says visitors without a session have a null user id (src/session.ts), which evaluates to bucket 0 so they receive every flag with percent above 0 (including unreleased features on the marketing site), and that the logged-out pricing experiment gives every visitor the same variant because the hash input is identical; an anonymous per-browser id is needed",
+      "fixed_if": "design introduces an anonymous visitor id (cookie/localStorage) used for bucketing when there is no user id, and handles visitors with no id as off"
+    },
+    {
+      "id": "D3",
+      "severity": "blocker",
+      "title": "The full ruleset, including unreleased feature names and customer targeting, is shipped publicly to every browser",
+      "where": "target.md 'The ruleset' and R5 (allowOrgs by organisation) and 'Ramp plan'; repo/config/flags/rules.json (usage-based-pricing-2027, lumen-crm-import, ai-contract-review, customer names and org ids), repo/infra/cdn.yaml (/flags/rules.json is a public CDN path)",
+      "detect_if": "says the whole rules.json is downloadable by anyone (including logged-out visitors), leaking unreleased feature names and which customers/organisations have early access (names and org ids in allowOrgs) and plans; targeting and unreleased flags need to be evaluated server-side or the client must receive only its own evaluated results",
+      "fixed_if": "client receives only per-user evaluated flags or a sanitised ruleset that omits unreleased flags and customer lists, or targeting is resolved server-side"
+    },
+    {
+      "id": "D4",
+      "severity": "major",
+      "title": "Kill switch cannot take effect 'within a minute': CDN caches /flags/rules.json for 300 s ignoring origin headers, on top of the 60 s poll",
+      "where": "target.md R3 and 'Delivery and the kill switch'; repo/infra/cdn.yaml (/flags/rules.json ttl_seconds: 300, ignore_origin_cache_control: true), repo/src/flags/client.ts (REFRESH_MS = 60000)",
+      "detect_if": "says the CDN config caches the ruleset for 5 minutes regardless of origin headers, so a kill published now can take up to about 6 minutes (300 s edge TTL plus the 60 s poll) to reach clients, contradicting the one-minute claim; the TTL must be reduced/purged on publish or kill delivered another way",
+      "fixed_if": "edge TTL for the ruleset is 30 s or less or the publish step purges the CDN, and the stated kill latency is recomputed from the real TTL plus poll interval"
+    },
+    {
+      "id": "D5",
+      "severity": "major",
+      "title": "Product decision made silently: assignment unit is the individual user, with undefined behaviour for teammates in one organisation and for visitors who sign in",
+      "where": "target.md 'Rollouts', 'Ramp plan' (shared-boards-v2 is a multi-user feature rolled out per user), FAQ ('What happens when a visitor signs in?'); repo/src/session.ts (orgId exists alongside userId), repo/src/flags/client.ts",
+      "detect_if": "raises that bucketing per user means teammates in the same organisation see a collaborative feature like shared-boards-v2 at different times, and/or that a visitor's assignment changes when they sign in (anonymous to user id) or differs across devices when logged out, and that whether assignment must be per organisation and/or continuous across login and devices is a product decision for the owner to make",
+      "fixed_if": "doc states the owner's decision on the unit of assignment (user vs organisation, per flag) and on continuity across sign-in/devices, or lists it as an open question for the product owner"
+    },
+    {
+      "id": "D6",
+      "severity": "major",
+      "title": "Integer buckets give 1% granularity: a 0.1% (or 0.5%) rollout actually exposes 1% of users, ten times more than planned",
+      "where": "target.md 'Ramp plan' (checkout-v3 at 0.1%, about 2,400 accounts); repo/config/flags/rules.json (checkout-v3 percent 0.5), repo/src/flags/client.ts (bucket < percent with bucket an integer 0-99)",
+      "detect_if": "points out that bucket is an integer 0-99, so bucket < 0.1 (or < 0.5) is true only for bucket 0, which is 1% of users (about 24,000 accounts rather than 2,400), so sub-1% stages are not possible with % 100 bucketing; more buckets (e.g. 10,000) are needed",
+      "fixed_if": "bucketing uses at least 10,000 buckets (basis points) so 0.1% is representable, and the ramp numbers are consistent with it"
+    },
+    {
+      "id": "D7",
+      "severity": "minor",
+      "title": "Exposure events are emitted on every evaluation, not once per flag per page load",
+      "where": "target.md 'Exposure logging'; repo/src/flags/client.ts (enabled() calls expose() on every call with no de-duplication)",
+      "detect_if": "says enabled() tracks flag_exposed each time it is called (every render), so event volume scales with renders and the doc's once-per-page-load claim does not hold unless de-duplicated",
+      "fixed_if": "exposure is de-duplicated per flag per page load in the client, or the doc states the real behaviour and volume"
+    }
+  ],
+  "traps": [
+    {
+      "id": "T1",
+      "title": "FNV-1a for experiment assignment looks like a weak, non-cryptographic hash",
+      "why_correct": "Bucketing only needs even and key-independent spreading, not collision or preimage resistance. repo/src/flags/hash.test.ts checks 1,000,000 sequential ids for evenness and cross-key independence, and the modulo bias of a 32-bit value mod 10,000 is negligible (about 2e-6 relative). Flagging the hash choice is a false positive."
+    },
+    {
+      "id": "T2",
+      "title": "Experiment variants have no sticky assignment, so users could flip when weights change",
+      "why_correct": "repo/src/flags/client.ts variant() already persists the chosen variant per user in localStorage (ff.sticky.<userId>.<key>) and returns it on later calls, and the kill list is checked before it. Rollout ramps are monotonic by construction (R4). Reporting missing stickiness for same-browser flips is a false positive (cross-device behaviour is the separate product question in D5)."
+    }
+  ]
+}

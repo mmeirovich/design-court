@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: accounts-api
+spec:
+  replicas: 8
+  minReadySeconds: 30
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels: { app: accounts-api }
+  template:
+    metadata:
+      labels: { app: accounts-api }
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: accounts-api
+          image: registry.internal/accounts-api:stable
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            periodSeconds: 5
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: accounts-db, key: url }

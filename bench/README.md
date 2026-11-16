@@ -45,8 +45,28 @@ corpus/<id>/
   repo/              optional: code and docs the target refers to (copied to the workspace root)
 ```
 
-`ex-01-webhook` is a small synthetic example so the harness can be demonstrated; do not
-draw conclusions from it alone. For a trustworthy result you want 10-20 targets:
+The shipped corpus is synthetic (planted defects), 9 targets:
+
+| Target | Defects (blocker/major/minor) | Traps |
+|---|---|---|
+| `ex-01-webhook` | 8 (1/5/2). Easy: every arm found all of them in the smoke run | 0 |
+| `ex-02-rate-limiter` | 7 (2/3/2) | 2 |
+| `ex-03-reminder-scheduler` | 6 (2/3/1) | 2 |
+| `ex-04-catalog-cache` | 6 (2/3/1) | 2 |
+| `ex-05-name-split-migration` | 6 (2/3/1) | 2 |
+| `ex-06-avatar-upload` | 7 (2/3/2) | 2 |
+| `ex-07-flag-rollout` | 7 (2/4/1) | 2 |
+| `ex-08-plan-proration` | 7 (1/4/2) | 2 |
+| `ex-09-audit-log-clean` | 0: control target, measures false positives only | 4 |
+
+Targets ex-02 to ex-09 are 130-210 line docs written to read as competent, with defects
+stated matter-of-factly (no tells). Each has at least two defects you can only find by
+reading `repo/`, one that needs arithmetic, and one that is really a product decision.
+Each key was checked by a separate agent that reviewed the target blind before reading
+the key. They were written by the same model family as the arms under test, which is a
+bias to keep in mind. Many have real unplanted problems too, which score as valid extras.
+
+For a trustworthy result you want 10-20 targets, ideally including real ones:
 
 - **Past designs whose real problems surfaced later** in implementation or production
   (best ground truth; cite the PR or incident in the key's `note`).
@@ -54,7 +74,14 @@ draw conclusions from it alone. For a trustworthy result you want 10-20 targets:
   contradictions, references to code that does not exist, undecided product behavior.
 - Mix severities (`blocker`, `major`, `minor`). Weighted recall uses 3 / 2 / 1.
 - Write `detect_if` and `fixed_if` precisely. The judge is literal.
-- Keep a few targets with **no** defects, or defects only in code, to expose false positives.
+- Add 1-3 **traps** per target (`traps` in the key): things that look wrong to a skimming
+  reviewer but are correct, with the evidence in the doc or repo. A finding that flags a
+  trap counts as a false positive. This is what measures whether a filtering step (such
+  as cross-examination) actually removes bad findings.
+- Keep a few **control targets** with `"defects": []` and only traps. They are left out of
+  recall and count only toward false positives.
+- Avoid tells. A defect stated as a suspicious absolute ("exactly once", "can never
+  fail") is found by everyone and separates nothing.
 
 ## How scoring works
 
@@ -65,10 +92,11 @@ arm produced), `workspace/` (the full working copy, for inspection), and after s
 
 `score.py` gives a judge model the answer key, the original doc and `bundle.md`. It returns,
 per defect, `detected` and `fixed` (does the diff of the target correct it), and classifies
-every problem the arm asserted as a planted defect, `valid_extra`, `invalid` or
-`unverifiable`. `report.py` turns that into per-arm tables, a defect-by-arm detection
-matrix, and paired comparisons with a standard-error check (it refuses to call a winner
-below 6 pairs).
+every problem the arm asserted as a planted defect, `trap:<id>`, `valid_extra`, `invalid`
+or `unverifiable`. The judge also sees the target's `repo/` files, so it can check
+findings that depend on code. `report.py` turns that into per-arm tables, a defect-by-arm
+detection matrix, a trap-by-arm matrix, and paired comparisons with a standard-error
+check (it refuses to call a winner below 6 pairs).
 
 Use a **different model family as judge** if you can, since same-family judges favor
 their own style:

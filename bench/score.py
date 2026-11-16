@@ -7,7 +7,8 @@
 The judge sees the answer key, the target and the arm's output (file names that would
 reveal the arm are stripped, but the content may still give it away). It decides, per
 planted defect, whether it was detected and whether the target diff fixes it, and
-classifies every problem the arm asserted. A custom judge command (BENCH_JUDGE_CMD) gets
+classifies every problem the arm asserted (flagging a key "trap" is a false positive).
+It also sees the target's repo/ files. A custom judge command (BENCH_JUDGE_CMD) gets
 the prompt on stdin and must print the JSON object on stdout. Scoring is resumable.
 """
 from __future__ import annotations
@@ -23,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ROOT, extract_json_obj, load_json, run_claude, write_json  # noqa: E402
 import os  # noqa: E402
 
-PROMPT = """You are scoring an automated design-review tool. You get (1) the ANSWER KEY of defects that were deliberately planted in a design document, (2) the design document, and (3) everything the tool produced. Be strict and literal.
+PROMPT = """You are scoring an automated design-review tool. You get (1) the ANSWER KEY: defects that were deliberately planted in a design document, and traps (things that look wrong but are correct), (2) the design document, (3) the repository files the tool could read, and (4) everything the tool produced. Be strict and literal.
 
 For each planted defect decide:
 - "detected": true only if the tool's output explicitly identifies this problem with a diagnosis that matches the defect (different wording is fine; a vague or adjacent remark is not). Ignore findings the tool itself withdrew or rejected.
@@ -31,14 +32,15 @@ For each planted defect decide:
 
 Then list every DISTINCT problem the tool asserts in its final output (ignore process chatter and withdrawn findings) and classify each:
 - "defect:<id>" if it matches a planted defect;
-- "valid_extra" if it is a real, checkable problem in the document that is not in the key (it must be demonstrable from the document text; if you are not sure, use "unverifiable");
-- "invalid" if it is wrong, contradicted by the document, or only a style preference;
+- "trap:<id>" if it asserts that a key TRAP is a problem (the trap is correct, so this is a false positive);
+- "valid_extra" if it is a real, checkable problem in the document that is not in the key (it must be demonstrable from the document and repository files; if you are not sure, use "unverifiable");
+- "invalid" if it is wrong, contradicted by the document or repository, or only a style preference;
 - "unverifiable" if you cannot tell.
 
 Reply with ONLY one JSON object, no prose, in this shape:
 {"defects":[{"id":"D1","detected":true,"fixed":false,"evidence":"<short quote or reason>"}],
  "findings":[{"summary":"<one line>","class":"defect:D1"}]}
-Include every defect id from the key exactly once.
+Include every defect id from the key exactly once (the key may have no defects; then "defects" is []).
 
 === ANSWER KEY ===
 %(key)s
@@ -46,9 +48,32 @@ Include every defect id from the key exactly once.
 === DESIGN DOCUMENT (original) ===
 %(target)s
 
+=== REPOSITORY FILES (what the tool could read) ===
+%(repo)s
+
 === TOOL OUTPUT ===
 %(bundle)s
 """
+
+
+REPO_CAP = 80_000
+
+
+def repo_text(tdir: Path) -> str:
+    """The target's repo/ files, so the judge can verify findings that depend on code or config."""
+    root = tdir / "repo"
+    if not root.exists():
+        return "(none)"
+    parts, total = [], 0
+    for f in sorted(p for p in root.rglob("*") if p.is_file()):
+        body = f.read_text(encoding="utf-8", errors="replace")
+        chunk = "--- %s ---\n%s\n" % (f.relative_to(root), body)
+        if total + len(chunk) > REPO_CAP:
+            parts.append("[repository listing truncated]\n")
+            break
+        parts.append(chunk)
+        total += len(chunk)
+    return "".join(parts) or "(none)"
 
 
 def judge(prompt: str, model, timeout: int) -> str:
@@ -83,7 +108,7 @@ def main() -> None:
         tid = rd.parents[1].name
         tdir = Path(a.corpus) / tid
         key = (tdir / "answer-key.json").read_text(encoding="utf-8")
-        prompt = PROMPT % {"key": key, "target": (tdir / "target.md").read_text(encoding="utf-8"),
+        prompt = PROMPT % {"key": key, "target": (tdir / "target.md").read_text(encoding="utf-8"), "repo": repo_text(tdir),
                            "bundle": (rd / "bundle.md").read_text(encoding="utf-8")}
         raw = judge(prompt, a.judge_model, a.timeout)
         obj = extract_json_obj(raw, "defects")

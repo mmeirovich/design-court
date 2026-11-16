@@ -5,7 +5,12 @@
   "defects": [
     {"id": "D1", "severity": "blocker | major | minor",
      "title": "one line",
+     "where": "doc section(s) and repo file(s) that show it",
      "detect_if": "what a review must say for this to count as found (be specific, the judge is literal)",
      "fixed_if": "what the document must say afterwards for this to count as fixed"}
+  ],
+  "traps": [
+    {"id": "T1", "title": "something that looks wrong but is correct",
+     "why_correct": "the evidence in the doc or repo that shows it is fine"}
   ]
 }
